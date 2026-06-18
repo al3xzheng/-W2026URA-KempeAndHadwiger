@@ -298,12 +298,12 @@ class GraphApp:
         div()
 
         # ── EXPORT GRAPH (on left panel, always visible via scroll) ───────────
-        sec("EXPORT GRAPH  (C++ ready)")
+        sec("EXPORT GRAPH")
 
         # Tab row
         tab_row = tk.Frame(sb, bg=PANEL_BG)
         tab_row.pack(fill="x", padx=14, pady=(0, 6))
-        self._export_tab = tk.StringVar(value="matrix")
+        self._export_tab = tk.StringVar(value="cpp")
 
         def make_tab(label, value):
             def select():
@@ -314,8 +314,8 @@ class GraphApp:
                              bg="#0d1520" if active else PANEL2_BG)
                 self._refresh_export()
             b = tk.Button(tab_row, text=label, font=(FONT, 8, "bold"),
-                          fg=ACCENT if value == "matrix" else TEXT_DIM,
-                          bg="#0d1520" if value == "matrix" else PANEL2_BG,
+                          fg=ACCENT if value == "cpp" else TEXT_DIM,
+                          bg="#0d1520" if value == "cpp" else PANEL2_BG,
                           relief="flat", bd=0, cursor="hand2",
                           activebackground=BORDER, padx=6, pady=4,
                           command=select)
@@ -323,10 +323,10 @@ class GraphApp:
             return b
 
         tab_btns = []
-        b1 = make_tab("Matrix", "matrix")
-        b2 = make_tab("Colors", "colors")
-        b3 = make_tab("Both",   "both")
-        tab_btns = [(b1, "matrix"), (b2, "colors"), (b3, "both")]
+        b1 = make_tab("C++",    "cpp")
+        b2 = make_tab("Plain",  "plain")
+        b3 = make_tab("Colors", "colors")
+        tab_btns = [(b1, "cpp"), (b2, "plain"), (b3, "colors")]
 
         exp_frame = tk.Frame(sb, bg=BORDER, padx=1, pady=1)
         exp_frame.pack(fill="x", padx=14)
@@ -481,9 +481,9 @@ class GraphApp:
         rdiv()
 
         # Import graph
-        rsec("IMPORT GRAPH  (C++ matrix)")
+        rsec("IMPORT GRAPH")
 
-        tk.Label(rb, text="Paste adjacency matrix:",
+        tk.Label(rb, text="Paste adjacency matrix\n(C++ or plain 0/1 format):",
                  font=(FONT, 8), fg=TEXT_MID,
                  bg=PANEL_BG, anchor="w").pack(fill="x", padx=14, pady=(0, 4))
 
@@ -928,20 +928,27 @@ class GraphApp:
     # ── Adjacency matrix import / export ─────────────────────────────────────
 
     def _adj_list_to_matrix_cpp(self):
-        """Return C++-style n×(n+1) matrix: adj cols + color as last column."""
-        CODE_MAP_REV = {"default": "0", "red": "1", "green": "2",
-                        "blue": "3", "yellow": "4", "white": "5"}
+        """Return C++-style n×n adjacency matrix (no color column)."""
         n = self.n
         lines = []
         for i in range(n):
             row = [0] * n
             for j in self.adj[i]:
                 row[j] = 1
-            color_code = int(CODE_MAP_REV.get(self.colors[i], "0"))
-            row.append(color_code)
             inner = ", ".join(str(v) for v in row)
             lines.append("        {%s}" % inner)
         return ",\n".join(lines)
+
+    def _adj_list_to_matrix_plain(self):
+        """Return plain n×n adjacency matrix as space-separated 0s and 1s."""
+        n = self.n
+        lines = []
+        for i in range(n):
+            row = [0] * n
+            for j in self.adj[i]:
+                row[j] = 1
+            lines.append(" ".join(str(v) for v in row))
+        return "\n".join(lines)
 
     def _color_seq_cpp(self):
         """Return C++-style color sequence: {1, 0, 2, 3, ...}"""
@@ -952,43 +959,27 @@ class GraphApp:
 
     def _build_export_text(self):
         tab = getattr(self, "_export_tab", None)
-        mode = tab.get() if tab else "matrix"
-        matrix_str = self._adj_list_to_matrix_cpp()
-        color_str  = self._color_seq_cpp()
+        mode = tab.get() if tab else "cpp"
 
-        edges = sum(len(nb) for nb in self.adj) // 2
-        colored = sum(1 for c in self.colors if c != "default")
-
-        color_legend = "// 0=none 1=red 2=green 3=blue 4=yellow 5=white"
-        color_codes  = self._color_seq_cpp()   # list of strings
-
-        if mode == "matrix":
-            body  = "// Adjacency matrix + color: int adj[%d][%d]\n" % (self.n, self.n + 1)
-            body += "// Columns 0..%d = adjacency, column %d = color\n" % (self.n - 1, self.n)
-            body += color_legend + "\n"
+        if mode == "cpp":
+            matrix_str = self._adj_list_to_matrix_cpp()
+            body  = "// Adjacency matrix: int adj[%d][%d]\n" % (self.n, self.n)
             body += "// {\n"
             body += matrix_str
             body += "\n// };"
-            info = "Matrix [%d][%d]  (adj + color col)" % (self.n, self.n + 1)
-
-        elif mode == "colors":
-            body  = "// Color column only (%d nodes, %d colored)\n" % (self.n, colored)
-            body += color_legend + "\n"
+            info = "C++ format  [%d][%d]" % (self.n, self.n)
+        elif mode == "plain":
+            matrix_str = self._adj_list_to_matrix_plain()
+            body  = matrix_str
+            info = "Plain format  %d×%d" % (self.n, self.n)
+        else:  # colors
+            color_codes = self._color_seq_cpp()
+            colored = sum(1 for c in self.colors if c != "default")
+            body  = "// Color sequence (%d nodes, %d colored)\n" % (self.n, colored)
+            body += "// 0=none 1=red 2=green 3=blue 4=yellow 5=white\n"
             body += "// int colors[%d] =\n" % self.n
             body += "        {%s};" % ", ".join(color_codes)
             info = "Colors — %d/%d nodes colored" % (colored, self.n)
-
-        else:  # both — matrix already has color baked in as last column
-            body  = "// Adjacency matrix + color: int adj[%d][%d]\n" % (self.n, self.n + 1)
-            body += "// Columns 0..%d = adjacency, column %d = color\n" % (self.n - 1, self.n)
-            body += color_legend + "\n"
-            body += "// {\n"
-            body += matrix_str
-            body += "\n// };\n\n"
-            body += "// Color column (standalone)\n"
-            body += "// int colors[%d] =\n" % self.n
-            body += "        {%s};" % ", ".join(color_codes)
-            info = "Matrix [%d][%d] + standalone color" % (self.n, self.n + 1)
 
         return body, info
 
@@ -1007,13 +998,18 @@ class GraphApp:
         """Copy export text to system clipboard."""
         self._refresh_export()
         raw = self.export_text.get("1.0", "end").strip()
-        # Strip comment lines for clean C++ paste
-        lines = [l for l in raw.splitlines() if not l.strip().startswith("//")]
-        clean = "\n".join(lines).strip()
+        tab = getattr(self, "_export_tab", None)
+        mode = tab.get() if tab else "cpp"
+        if mode in ("cpp", "colors"):
+            # Strip comment lines for clean C++ paste
+            lines = [l for l in raw.splitlines() if not l.strip().startswith("//")]
+            clean = "\n".join(lines).strip()
+        else:
+            clean = raw
         self.root.clipboard_clear()
         self.root.clipboard_append(clean)
         self.root.update()
-        self.status("Copied to clipboard (comments stripped).")
+        self.status("Copied to clipboard.")
 
     def _parse_cpp_matrix(self, raw):
         """
@@ -1043,6 +1039,40 @@ class GraphApp:
                     "Row %d has %d values but matrix is %dx%d." % (i, len(row), n, n))
         return matrix
 
+    def _parse_plain_matrix(self, raw):
+        """
+        Parse a plain space-separated adjacency matrix like:
+            0 1 1
+            1 0 1
+            1 1 0
+        Returns list-of-lists of ints, or raises ValueError with a message.
+        """
+        lines = [l.strip() for l in raw.splitlines() if l.strip()]
+        matrix = []
+        for i, line in enumerate(lines):
+            tokens = line.split()
+            try:
+                vals = [int(t) for t in tokens]
+            except ValueError:
+                raise ValueError("Row %d contains non-integer value." % i)
+            matrix.append(vals)
+
+        if not matrix:
+            raise ValueError("No rows found.")
+        n = len(matrix)
+        for i, row in enumerate(matrix):
+            if len(row) != n:
+                raise ValueError(
+                    "Row %d has %d values but matrix is %dx%d." % (i, len(row), n, n))
+        return matrix
+
+    def _parse_matrix_auto(self, raw):
+        """Auto-detect C++ or plain format and parse accordingly."""
+        if "{" in raw:
+            return self._parse_cpp_matrix(raw)
+        else:
+            return self._parse_plain_matrix(raw)
+
     def _matrix_to_adj(self, matrix):
         """Convert n×n 0/1 matrix to adjacency list (undirected, ignores diagonal)."""
         n = len(matrix)
@@ -1060,7 +1090,7 @@ class GraphApp:
                 text="Paste a matrix first.", fg="#e74c3c")
             return
         try:
-            matrix = self._parse_cpp_matrix(raw)
+            matrix = self._parse_matrix_auto(raw)
         except ValueError as e:
             self.import_feedback.config(text="Parse error: %s" % e, fg="#e74c3c")
             return
